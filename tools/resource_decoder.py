@@ -258,6 +258,12 @@ def decode_work_item_code(cursor, code10: str) -> dict | None:
 
         match = next((d for d in available if d["code"] == code_val), None)
         if not match:
+            # 若過濾後清單找不到，退回全 section 搜尋。
+            # 原因：部分章節（如 02220 工地拆除）Sec06 各代碼共用相同 MinRow/MaxRow，
+            # 導致 Sec07 依 current_selfrow 過濾時只剩第一群組，
+            # 後續群組代碼（如建築物拆除='2'）被錯誤排除。
+            match = next((d for d in sec_data if d["code"] == code_val), None)
+        if not match:
             return None
 
         current_selfrow = match["selfrow"]
