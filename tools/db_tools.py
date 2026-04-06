@@ -352,6 +352,68 @@ def search_work_item_codes(keyword: str, unit: str = None, limit: int = 50) -> l
             seen.add(pcces_code)
             results.append(item)
 
+    # Fallback：部分章節（如 02220 工地拆除）因 AutoNumB MinRow/MaxRow 結構特殊，
+    # enumerate 只能產生第一個 Sec07 群組，後續獨立群組（建築物拆除、結構物拆除…）
+    # 無法被 enumerate 覆蓋。直接從 AutoNumB Content 找到匹配的代碼段，
+    # 再組合各 Section 的代碼構造代表性 10 碼，並用 decode 驗證。
+    if chap_codes:
+        # 找出 keyword 出現在 AutoNumB Content 的所有 (ChapCode, CodeSection, Code, SelfRow) 記錄
+        placeholders = ",".join("?" * len(chap_codes))
+        cursor.execute(
+            f"SELECT RTRIM(ChapCode), RTRIM(CodeSection), RTRIM(Code), SelfRow "
+            f"FROM AutoNumB WHERE ChapCode IN ({placeholders}) AND Content LIKE ? "
+            f"AND LEN(RTRIM(Code)) > 0 ORDER BY ChapCode, CodeSection, SelfRow",
+            chap_codes + [f"%{keyword}%"],
+        )
+        matched_entries = cursor.fetchall()
+
+        for chap, sec, matched_code, matched_selfrow in matched_entries:
+            # 取各 section 的代碼清單（只取 Code 不為空的）
+            sec_codes: dict[str, list[str]] = {}
+            for s in ["06", "07", "08", "09", "10"]:
+                cursor.execute(
+                    "SELECT DISTINCT RTRIM(Code) FROM AutoNumB "
+                    "WHERE ChapCode=? AND CodeSection=? AND LEN(RTRIM(Code))>0",
+                    chap, s,
+                )
+                sec_codes[s] = [r[0] for r in cursor.fetchall()]
+
+            # 各 section 的代表碼：非匹配 section 使用 '0'（空白/通用），匹配 section 用 matched_code
+            sections = ["06", "07", "08", "09", "10"]
+            unit_sec = "10"  # 最後一 section 是單位
+
+            # 對每個 Sec06 代碼 × 所有 Sec10（單位）代碼進行組合，中間 section 用代表碼
+            sec06_codes = sec_codes.get("06", ["0"])
+            sec10_codes = sec_codes.get(unit_sec, ["4"])
+
+            for s06 in sec06_codes:
+                for s10 in sec10_codes:
+                    suffix_parts = []
+                    for s in sections:
+                        if s == "06":
+                            suffix_parts.append(s06)
+                        elif s == sec:
+                            suffix_parts.append(matched_code)
+                        elif s == unit_sec:
+                            suffix_parts.append(s10)
+                        else:
+                            suffix_parts.append("0")
+                    code10 = chap + "".join(suffix_parts)
+                    if len(code10) != 10 or code10 in seen:
+                        continue
+                    decoded = _decode_work_item_code(cursor, code10)
+                    if not decoded:
+                        continue
+                    cname = decoded.get("cName", "")
+                    uname = decoded.get("unitName", "")
+                    norm_cname = cname.replace("，", "").replace(",", "").replace(" ", "")
+                    if keyword not in cname and norm_keyword not in norm_cname:
+                        continue
+                    if unit and unit.strip() not in uname.strip():
+                        continue
+                    seen.add(code10)
+                    results.append({"pccesCode": code10, "cName": cname, "unitName": uname})
+
     # 排序：先依「章節碼(前5碼) + 後綴去掉第6碼(類別字元)」分組，
     # 再依類別字元(C/D等)排序，確保同一試驗的 C 系列與 D 系列相鄰出現，
     # 避免因 C 全部排在 D 之前而導致 limit 截斷後 D 系列永遠不出現。
