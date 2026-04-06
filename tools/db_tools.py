@@ -5,6 +5,7 @@ from tools.resource_decoder import (
     decode_resource_code as _decode_resource_code,
     decode_work_item_code as _decode_work_item_code,
     get_code_index as _get_code_index,
+    enumerate_work_item_codes as _enumerate_work_item_codes,
 )
 
 _SYSTEM_DATABASES = {"master", "tempdb", "model", "msdb"}
@@ -286,6 +287,74 @@ def get_unit_price_analysis(project_code: str, keyword: str, db: str = None) -> 
 
     conn.close()
     return results
+
+
+def search_work_item_codes(keyword: str, unit: str = None, limit: int = 50) -> list[dict]:
+    """
+    在 PCCES 標準工項代碼庫（AutoNumB）中依名稱關鍵字搜尋工項代碼。
+    直接查詢 AutoNumA/AutoNumB 標準定義，不依賴專案資料，
+    任何安裝了 PCCES 的電腦均可使用。
+
+    keyword: 搜尋關鍵字（工項名稱中文）
+    unit: 單位過濾，例如: M2, 式, 個（可選）
+    limit: 最多回傳筆數（預設50，最大200）
+    """
+    conn = get_connection("Pcces")
+    cursor = conn.cursor()
+
+    limit = max(1, min(limit, 200))
+
+    # 產生搜尋詞：完整關鍵字 + 4字元滑動視窗
+    # 目的：讓「明架矽酸鈣板」能找到含「明架」或「矽酸鈣板」的章節
+    search_terms = [keyword]
+    if len(keyword) > 4:
+        for i in range(len(keyword) - 3):
+            search_terms.append(keyword[i:i + 4])
+    search_terms = list(dict.fromkeys(search_terms))[:8]  # 去重，最多8個詞
+
+    # UNION 查詢：任一搜尋詞出現在 Content 或章節名稱的章節代碼
+    union_parts = []
+    params: list = []
+    for term in search_terms:
+        union_parts.append(
+            "SELECT DISTINCT RTRIM(ChapCode) FROM AutoNumB WHERE Content LIKE ?"
+        )
+        params.append(f"%{term}%")
+        union_parts.append(
+            "SELECT RTRIM(itemCode) FROM AutoNumA WHERE cName LIKE ?"
+        )
+        params.append(f"%{term}%")
+
+    cursor.execute(" UNION ".join(union_parts), params)
+    chap_codes = sorted(r[0] for r in cursor.fetchall() if r[0])
+
+    # 正規化關鍵字（去逗號空格）用於 Python 層比對
+    norm_keyword = keyword.replace("，", "").replace(",", "").replace(" ", "")
+
+    results = []
+    seen: set[str] = set()
+
+    for chap_code in chap_codes:
+        codes = _enumerate_work_item_codes(cursor, chap_code)
+        for item in codes:
+            pcces_code = item["pccesCode"]
+            cname = item["cName"]
+            unit_name = item["unitName"]
+
+            # 支援兩種比對：直接包含 OR 正規化後包含（處理中文複合詞跨逗號的情況）
+            norm_cname = cname.replace("，", "").replace(",", "").replace(" ", "")
+            if keyword not in cname and norm_keyword not in norm_cname:
+                continue
+            if unit and unit.strip() not in unit_name.strip():
+                continue
+            if pcces_code in seen:
+                continue
+            seen.add(pcces_code)
+            results.append(item)
+
+    results.sort(key=lambda x: x["pccesCode"])
+    conn.close()
+    return results[:limit]
 
 
 def decode_work_item_code(code10: str, db: str = None) -> dict:

@@ -14,6 +14,7 @@ from tools.db_tools import (
     decode_standard_resource_code,
     search_standard_codes,
     decode_work_item_code,
+    search_work_item_codes,
 )
 
 app = Server("pcces")
@@ -171,6 +172,34 @@ async def list_tools() -> list[types.Tool]:
             },
         ),
         types.Tool(
+            name="search_work_item_codes",
+            description=(
+                "在 PCCES 標準工項代碼庫（AutoNumB）中依名稱關鍵字搜尋工項代碼。"
+                "與 search_item_by_name 不同：此工具直接查詢全國標準定義，不依賴專案資料，"
+                "任何安裝了 PCCES 的電腦均可使用。"
+                "回傳 pccesCode（10碼）、工項名稱、單位。"
+            ),
+            inputSchema={
+                "type": "object",
+                "required": ["keyword"],
+                "properties": {
+                    "keyword": {
+                        "type": "string",
+                        "description": "工項名稱關鍵字，例如: 矽酸鈣板、混凝土、鋼筋、天花板",
+                    },
+                    "unit": {
+                        "type": "string",
+                        "description": "單位過濾，例如: M2, 式, 個, T（可選）",
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "最多回傳筆數（預設50，最大200）",
+                        "default": 50,
+                    },
+                },
+            },
+        ),
+        types.Tool(
             name="decode_resource_code",
             description=(
                 "解碼 PCCES 標準資源代碼，回傳該代碼對應的中文名稱與單位。"
@@ -245,6 +274,12 @@ async def call_tool(name: str, arguments: dict) -> list[types.TextContent]:
                 keyword=arguments["keyword"],
                 db=arguments.get("db"),
                 res_type=arguments.get("res_type"),
+                limit=arguments.get("limit", 50),
+            )
+        elif name == "search_work_item_codes":
+            result = search_work_item_codes(
+                keyword=arguments["keyword"],
+                unit=arguments.get("unit"),
                 limit=arguments.get("limit", 50),
             )
         elif name == "decode_resource_code":

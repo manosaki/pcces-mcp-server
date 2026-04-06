@@ -444,6 +444,70 @@ def reset_code_index() -> None:
     _CODE_INDEX = None
 
 
+def _load_work_item_sec_data(cursor, chap_code: str) -> dict:
+    """一次性載入 AutoNumB 中指定章節的所有代碼資料"""
+    cursor.execute(
+        """
+        SELECT RTRIM(CodeSection), RTRIM(Code), MinRow, MaxRow, SelfRow, Content
+        FROM AutoNumB
+        WHERE ChapCode = ? AND Code IS NOT NULL AND LEN(RTRIM(Code)) > 0
+        ORDER BY CodeSection, SelfRow
+        """,
+        chap_code,
+    )
+    cache = {}
+    for r in cursor.fetchall():
+        sec, code, minrow, maxrow, selfrow, content = r
+        key = (chap_code, sec)
+        if key not in cache:
+            cache[key] = []
+        cache[key].append({
+            "code": code,
+            "minrow": minrow,
+            "maxrow": maxrow,
+            "selfrow": selfrow,
+            "content": content or "",
+        })
+    return cache
+
+
+def enumerate_work_item_codes(cursor, chap_code: str) -> list[dict]:
+    """列舉指定章節的所有有效工項代碼（從 AutoNumB 演算法解碼）"""
+    cursor.execute("SELECT cName FROM AutoNumA WHERE RTRIM(itemCode) = ?", chap_code)
+    r = cursor.fetchone()
+    if not r:
+        return []
+    chap_name = r[0]
+
+    data_cache = _load_work_item_sec_data(cursor, chap_code)
+    sec06_data = data_cache.get((chap_code, "06"), [])
+    if not sec06_data:
+        return []
+
+    records = []
+    for entry in sec06_data:
+        init_name = [chap_name] + ([entry["content"]] if entry["content"] else [])
+        paths = _enumerate_paths(
+            data_cache, chap_code,
+            ["07", "08", "09", "10"],
+            entry["selfrow"],
+            [entry["code"]],
+            init_name,
+            target_len=5,
+        )
+        for suffix, name_parts in paths:
+            if not name_parts:
+                continue
+            unit = name_parts[-1]
+            cname = "，".join(name_parts[:-1]) if len(name_parts) > 1 else name_parts[0]
+            records.append({
+                "pccesCode": chap_code + suffix,
+                "cName": cname,
+                "unitName": unit,
+            })
+    return records
+
+
 def decode_resource_code(cursor, full_code: str) -> dict | None:
     """
     自動判斷資源代碼類型並解碼
