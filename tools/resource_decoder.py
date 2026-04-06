@@ -503,7 +503,10 @@ def enumerate_work_item_codes(cursor, chap_code: str) -> list[dict]:
             if not name_parts:
                 continue
             unit = name_parts[-1]
-            cname = "，".join(name_parts[:-1]) if len(name_parts) > 1 else name_parts[0]
+            cname_parts = name_parts[:-1]
+            if not cname_parts:
+                continue  # 跳過名稱為空的代碼（IsShow=' ' 且無 Content 的不分類項）
+            cname = "，".join(cname_parts)
             records.append({
                 "pccesCode": chap_code + suffix,
                 "cName": cname,
