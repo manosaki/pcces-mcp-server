@@ -352,7 +352,10 @@ def search_work_item_codes(keyword: str, unit: str = None, limit: int = 50) -> l
             seen.add(pcces_code)
             results.append(item)
 
-    results.sort(key=lambda x: x["pccesCode"])
+    # 排序：先依「章節碼(前5碼) + 後綴去掉第6碼(類別字元)」分組，
+    # 再依類別字元(C/D等)排序，確保同一試驗的 C 系列與 D 系列相鄰出現，
+    # 避免因 C 全部排在 D 之前而導致 limit 截斷後 D 系列永遠不出現。
+    results.sort(key=lambda x: (x["pccesCode"][:5] + x["pccesCode"][6:], x["pccesCode"][5:6]))
     conn.close()
     return results[:limit]
 
