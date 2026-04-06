@@ -11,10 +11,9 @@
 | 項目 | 需求 |
 |------|------|
 | 作業系統 | Windows 10 / 11（64位元） |
-| Python | 3.10 以上 |
+| Python | 3.10 以上（含 pip） |
 | PCCES 軟體 | 已安裝並建立資料庫（含 `Pcces` 標準庫） |
 | SQL Server | SQL Server Express（PCCES 安裝時自動附帶） |
-| ODBC 驅動程式 | `SQL Server`（Windows 內建，通常已存在） |
 | AI 客戶端 | Claude Desktop（或其他支援 MCP 的客戶端） |
 
 > **重要**：本工具僅適用於已安裝 PCCES 軟體的 Windows 電腦，需能存取 PCCES 的 SQL Server 資料庫。
@@ -26,64 +25,60 @@
 ### 1. 下載專案
 
 ```bash
-git clone https://github.com/YOUR_USERNAME/pcces-mcp-server.git
-cd pcces-mcp-server
+git clone https://github.com/manosaki/pcces-mcp-server.git
 ```
 
-或直接下載 ZIP 並解壓縮到任意目錄（例如 `C:\pcces-mcp-server`）。
+或直接下載 ZIP 並解壓縮到任意目錄（建議 `C:\pcces-mcp-server`）。
 
-### 2. 安裝 Python 套件
+### 2. 執行安裝程式（建議）
 
-```bash
-pip install -r requirements.txt
-```
+進入專案目錄，**雙擊執行** `install.bat`。
 
-### 3. 確認 SQL Server 連線
+安裝程式會自動：
+- 偵測電腦上正確的 Python 版本（處理多版本共存問題）
+- 安裝必要套件（`mcp`、`pyodbc`）
+- 驗證 PCCES 資料庫連線
+- 顯示 Claude Desktop 設定內容（直接複製貼上即可）
 
-預設會連線到本機的 `.\SQLEXPRESS`（PCCES 標準安裝位置）。
+### 3. 設定 Claude Desktop
 
-如果您的 SQL Server 執行個體名稱不同，請設定環境變數：
+開啟設定檔（按 `Win + R`，輸入 `%APPDATA%\Claude`，用記事本開啟 `claude_desktop_config.json`）。
 
-```bash
-# 範例：若執行個體名稱為 SQLEXPRESS2019
-set PCCES_SQL_SERVER=.\SQLEXPRESS2019
-```
-
-可在命令提示字元執行以下指令確認連線是否正常：
-
-```bash
-python -c "from tools.db_tools import list_databases; print(list_databases())"
-```
-
-若回傳資料庫清單（如 `[{'db': 'Pcces', ...}, {'db': 'AR', ...}]`），表示連線成功。
-
-### 4. 設定 Claude Desktop
-
-開啟 Claude Desktop 的設定檔：
-
-**Windows 路徑：**
-```
-%APPDATA%\Claude\claude_desktop_config.json
-```
-
-加入以下設定（請將路徑改為您實際的安裝位置）：
+將 `install.bat` 輸出的設定內容貼入存檔，例如：
 
 ```json
 {
   "mcpServers": {
     "pcces": {
-      "command": "python",
+      "command": "C:\\Users\\USER\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
       "args": ["C:\\pcces-mcp-server\\server.py"]
     }
   }
 }
 ```
 
-> **注意**：`command` 中的 `python` 需能在系統 PATH 中找到。若有多個 Python 版本，建議改用完整路徑，例如 `C:\\Python312\\python.exe`。
+> **注意**：`command` 必須使用 `install.bat` 輸出的完整 Python 路徑，不可直接填 `python`（多版本環境下會指到錯誤的版本）。
 
-### 5. 重新啟動 Claude Desktop
+### 4. 重新啟動 Claude Desktop
 
 關閉並重新開啟 Claude Desktop，在工具清單中確認出現 `pcces` 相關工具即完成設定。
+
+---
+
+## 手動安裝（進階）
+
+若不使用 `install.bat`，請手動執行：
+
+```bash
+# 確認 Python 版本（需 3.10+）
+python --version
+
+# 若系統有多個 Python，使用 py 啟動器指定版本
+py -3.12 -m pip install -r requirements.txt
+
+# 查詢實際 Python 路徑（貼入 claude_desktop_config.json）
+py -3.12 -c "import sys; print(sys.executable)"
+```
 
 ---
 
@@ -96,13 +91,13 @@ python -c "from tools.db_tools import list_databases; print(list_databases())"
 | `PCCES_SQL_SERVER` | SQL Server 伺服器\\執行個體名稱 | `.\\SQLEXPRESS` |
 | `PCCES_SQL_DRIVER` | ODBC 驅動程式名稱 | `SQL Server` |
 
-在 Claude Desktop 設定中傳入環境變數的方式：
+在 `claude_desktop_config.json` 中設定環境變數：
 
 ```json
 {
   "mcpServers": {
     "pcces": {
-      "command": "python",
+      "command": "C:\\Users\\USER\\AppData\\Local\\Programs\\Python\\Python312\\python.exe",
       "args": ["C:\\pcces-mcp-server\\server.py"],
       "env": {
         "PCCES_SQL_SERVER": ".\\SQLEXPRESS2019"
@@ -146,20 +141,20 @@ python -c "from tools.db_tools import list_databases; print(list_databases())"
 
 ## 常見問題
 
+**Q：執行 `install.bat` 顯示找不到 Python**
+
+請先安裝 Python 3.10+：前往 https://www.python.org/downloads/ 下載，安裝時勾選「Add Python to PATH」及「pip」。
+
 **Q：連線失敗，找不到資料庫**
 
-請確認：
-1. PCCES 軟體已正常安裝
-2. SQL Server Express 服務正在執行（可在工作管理員→服務中查看 `MSSQL$SQLEXPRESS`）
-3. 執行個體名稱正確（可設定環境變數 `PCCES_SQL_SERVER`）
+1. 確認 PCCES 軟體已正常安裝
+2. 確認 SQL Server Express 服務正在執行（工作管理員→服務→`MSSQL$SQLEXPRESS`）
+3. 若執行個體名稱不同，在 `claude_desktop_config.json` 加入 `"env": {"PCCES_SQL_SERVER": ".\\你的執行個體名稱"}`
 
-**Q：Python 找不到 `mcp` 套件**
+**Q：Claude Desktop 看不到 pcces 工具**
 
-請執行 `pip install mcp pyodbc` 確認已安裝。
-
-**Q：ODBC 連線錯誤**
-
-請確認已安裝 SQL Server ODBC 驅動程式。Windows 10/11 通常內建，若缺少可從 Microsoft 官網下載 `ODBC Driver for SQL Server`，並將 `PCCES_SQL_DRIVER` 設為 `ODBC Driver 17 for SQL Server`。
+1. 確認 `claude_desktop_config.json` 的 Python 路徑正確（使用 `install.bat` 輸出的完整路徑）
+2. 完整關閉並重新開啟 Claude Desktop
 
 ---
 
