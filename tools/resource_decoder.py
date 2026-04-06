@@ -189,11 +189,11 @@ def decode_work_item_code(cursor, code10: str) -> dict | None:
     chap = code10[:5]
     suffix = code10[5:]
 
-    cursor.execute("SELECT cName FROM AutoNumA WHERE RTRIM(itemCode) = ?", chap)
+    cursor.execute("SELECT cName, RTRIM(IsShow) FROM AutoNumA WHERE RTRIM(itemCode) = ?", chap)
     r = cursor.fetchone()
     if not r:
         return None
-    chap_name = r[0]
+    chap_name, chap_isshow = r[0], (r[1] or "").strip()
 
     cursor.execute(
         "SELECT COUNT(*) FROM AutoNumB WHERE ChapCode = ? AND CodeSection = '06'", chap
@@ -203,7 +203,8 @@ def decode_work_item_code(cursor, code10: str) -> dict | None:
 
     current_selfrow = None  # Sec06: 全部可用，不過濾
     i = 0
-    name_parts = [chap_name]
+    # 章節名稱只有 IsShow='*' 才加入名稱（例如 09500 天花板加入，03110 場鑄混凝土模板不加入）
+    name_parts = [chap_name] if chap_isshow == "*" else []
     skip_next = False
 
     for sec in ["06", "07", "08", "09", "10"]:
@@ -473,11 +474,11 @@ def _load_work_item_sec_data(cursor, chap_code: str) -> dict:
 
 def enumerate_work_item_codes(cursor, chap_code: str) -> list[dict]:
     """列舉指定章節的所有有效工項代碼（從 AutoNumB 演算法解碼）"""
-    cursor.execute("SELECT cName FROM AutoNumA WHERE RTRIM(itemCode) = ?", chap_code)
+    cursor.execute("SELECT cName, RTRIM(IsShow) FROM AutoNumA WHERE RTRIM(itemCode) = ?", chap_code)
     r = cursor.fetchone()
     if not r:
         return []
-    chap_name = r[0]
+    chap_name, chap_isshow = r[0], (r[1] or "").strip()
 
     data_cache = _load_work_item_sec_data(cursor, chap_code)
     sec06_data = data_cache.get((chap_code, "06"), [])
@@ -486,7 +487,10 @@ def enumerate_work_item_codes(cursor, chap_code: str) -> list[dict]:
 
     records = []
     for entry in sec06_data:
-        init_name = [chap_name] + ([entry["content"]] if entry["content"] else [])
+        # 章節名稱（AutoNumA.cName）只有 IsShow='*' 才加入；AutoNumB Sec06 的 Content 直接加入
+        init_name = ([chap_name] if chap_isshow == "*" else [])
+        if entry["content"]:
+            init_name = init_name + [entry["content"]]
         paths = _enumerate_paths(
             data_cache, chap_code,
             ["07", "08", "09", "10"],
